@@ -126,7 +126,58 @@
       }
 
       const data = await r.json();
-      const calls = Array.isArray(data) ? d
+      const calls = Array.isArray(data) ? data : (data.calls || []);
+
+      // Sort newest first by start_time/date_created
+      calls.sort((a, b) => {
+        const ta = Date.parse(a.start_time || a.date_created || "") || 0;
+        const tb = Date.parse(b.start_time || b.date_created || "") || 0;
+        return tb - ta;
+      });
+
+      // Render each call (NO DEDUPE)
+      for (const c of calls) {
+        addRowToTable({
+          time: formatLocal(c.start_time || c.date_created),
+          from: c.from,
+          outcome: outcomeFromCall(c),
+          duration: c.duration ?? ""
+        });
+      }
+
+      const now = new Date();
+      const lastRefresh = formatLocal(now.toString());
+
+      const countText = (Array.isArray(data) ? calls.length : (data.count ?? calls.length));
+      setInfo(`Showing ${calls.length} calls • last refresh ${formatLocal(now)}`);
+
+      // Optional: show pagination stats if provided
+      if (!Array.isArray(data) && (data.pagesFetched || data.hours)) {
+        setWarn(`Pulled ${countText} calls over ${data.pagesFetched || "?"} page(s) for last ${data.hours || hours} hour(s).`);
+      }
+
+    } catch (err) {
+      setWarn(String(err.message || err));
+      setInfo("No data loaded.");
+    }
+  }
+
+  // Hook up buttons (assumes your buttons call these ids)
+  document.addEventListener("DOMContentLoaded", () => {
+    // If your HTML uses inline onclick attributes, this still works, but we also attach handlers.
+    const refreshBtn = document.querySelector("button#refresh") || Array.from(document.querySelectorAll("button")).find(b => /refresh/i.test(b.textContent));
+    if (refreshBtn) refreshBtn.addEventListener("click", loadAllCalls);
+
+    const range = document.getElementById("range");
+    if (range) range.addEventListener("change", loadAllCalls);
+
+    // initial load
+    loadAllCalls();
+  });
+
+  // If your HTML uses inline onclick="refresh()" etc, expose a global:
+  window.refresh = loadAllCalls;
+</script>
 
 </body>
 </html>
