@@ -1,167 +1,134 @@
-<script>
-  // ---- CONFIG ----
-  const MAX_PAGES = 20; // increase if you want longer history and have heavy volume
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TKG Call Log (All Calls)</title>
 
-  // ---- Helpers ----
-  function pad2(n) { return String(n).padStart(2, "0"); }
+  <!-- VERSION: TKG-ALL-CALLS-2026-01-07-A -->
 
-  function formatLocal(dt) {
-    // dt may be "Wed, 07 Jan 2026 06:41:11 +0000"
-    const d = new Date(dt);
-    if (Number.isNaN(d.getTime())) return dt || "";
-    // dd/mm/yyyy hh:mm:ss in local time
-    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-  }
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; color: #111; }
+    h1 { margin: 0 0 12px 0; }
+    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    #warn { color: #b00020; margin-top: 10px; white-space: pre-wrap; }
+    #info { margin-top: 8px; color: #555; }
 
-  function outcomeFromCall(c) {
-    // Twilio: status can be "completed", "no-answer", "busy", "failed", "canceled", etc.
-    // duration is "0" for missed/no-answer in most cases.
-    const status = (c.status || "").toLowerCase();
-    const duration = Number(c.duration || 0);
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+    th { background: #f4f4f4; }
+    .missed { color: #b00020; font-weight: bold; }
+    .answered { color: #006400; font-weight: bold; }
+  </style>
+</head>
 
-    if (status === "completed" && duration > 0) return "Answered";
-    if (status === "completed" && duration === 0) return "Missed";
-    if (status === "no-answer") return "Missed";
-    if (status === "busy") return "Busy";
-    if (status === "failed") return "Failed";
-    if (status === "canceled") return "Canceled";
-    return status ? status : "Unknown";
-  }
+<body>
+  <h1>TKG Call Log (All Calls)</h1>
 
-  function getSelectedHours() {
-    // Assumes your dropdown has id="range"
-    const el = document.getElementById("range");
-    if (!el) return 1;
+  <div class="controls">
+    <label>
+      Time range:
+      <select id="range">
+        <option value="1">Last 60 minutes</option>
+        <option value="3">Last 3 hours</option>
+        <option value="24" selected>Last 24 hours</option>
+        <option value="168">Last 7 days</option>
+      </select>
+    </label>
 
-    const v = el.value;
+    <button id="refresh" type="button">Refresh</button>
+  </div>
 
-    // Support common patterns:
-    // - numeric hours: "1", "3", "24", "168"
-    // - labels: "Last 60 minutes", "Last 3 hours", "Today", "All time"
-    if (/^\d+$/.test(v)) return Number(v);
+  <div id="warn"></div>
+  <div id="info"></div>
 
-    const lower = v.toLowerCase();
-    if (lower.includes("60")) return 1;
-    if (lower.includes("3")) return 3;
-    if (lower.includes("today")) return 24;
-    if (lower.includes("all")) return 24 * 365; // 1 year as "all time" cap (adjust if needed)
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>From</th>
+        <th>Outcome</th>
+        <th>Duration (s)</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
 
-    return 1;
-  }
+  <script>
+    console.log("INDEX SCRIPT LOADED: VERSION TKG-ALL-CALLS-2026-01-07-A");
 
-  function setInfo(text) {
-    const info = document.getElementById("info");
-    if (info) info.textContent = text;
-  }
-
-  function setWarn(text) {
-    const warn = document.getElementById("warn");
-    if (warn) {
-      warn.textContent = text || "";
-      warn.style.display = text ? "block" : "none";
+    function formatLocal(ts) {
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return ts || "";
+      return d.toLocaleString();
     }
-  }
 
-  function clearTable() {
-    const table = document.querySelector("table");
-    if (!table) return;
+    function outcome(call) {
+      const status = (call.status || "").toLowerCase();
+      const duration = Number(call.duration || 0);
 
-    // Remove all rows except header
-    const rows = Array.from(table.querySelectorAll("tr"));
-    rows.slice(1).forEach(r => r.remove());
-  }
+      if (status === "completed" && duration > 0) return "Answered";
+      if (status === "completed" && duration === 0) return "Missed";
+      if (status === "no-answer") return "Missed";
+      return call.status || "Unknown";
+    }
 
-  function addRowToTable({ time, from, outcome, duration }) {
-    const table = document.querySelector("table");
-    if (!table) return;
+    async function loadCalls() {
+      const warn = document.getElementById("warn");
+      const info = document.getElementById("info");
+      const rows = document.getElementById("rows");
 
-    const tr = document.createElement("tr");
+      warn.textContent = "";
+      info.textContent = "Loading…";
+      rows.innerHTML = "";
 
-    const tdTime = document.createElement("td");
-    tdTime.textContent = time;
+      const hours = document.getElementById("range").value;
+      const url = `/.netlify/functions/calls?hours=${encodeURIComponent(hours)}&maxPages=20`;
 
-    const tdFrom = document.createElement("td");
-    tdFrom.textContent = from || "";
+      try {
+        console.log("Fetching:", url);
 
-    const tdOutcome = document.createElement("td");
-    tdOutcome.textContent = outcome || "";
+        const r = await fetch(url, { cache: "no-store" });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`Function returned ${r.status}\n${t}`);
+        }
 
-    const tdDuration = document.createElement("td");
-    tdDuration.textContent = String(duration ?? "");
+        const data = await r.json();
+        const calls = data.calls || [];
 
-    tr.appendChild(tdTime);
-    tr.appendChild(tdFrom);
-    tr.appendChild(tdOutcome);
-    tr.appendChild(tdDuration);
-
-    table.appendChild(tr);
-  }
-
-  async function loadAllCalls() {
-    try {
-      setWarn("");
-      setInfo("Loading…");
-      clearTable();
-
-      const hours = getSelectedHours();
-      const url = `/.netlify/functions/calls?hours=${encodeURIComponent(hours)}&maxPages=${encodeURIComponent(MAX_PAGES)}`;
-
-      const r = await fetch(url, { cache: "no-store" });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`Function error ${r.status}: ${t}`);
-      }
-
-      const data = await r.json();
-      const calls = Array.isArray(data) ? data : (data.calls || []);
-
-      // Sort newest first by start_time/date_created
-      calls.sort((a, b) => {
-        const ta = Date.parse(a.start_time || a.date_created || "") || 0;
-        const tb = Date.parse(b.start_time || b.date_created || "") || 0;
-        return tb - ta;
-      });
-
-      // Render each call (NO DEDUPE)
-      for (const c of calls) {
-        addRowToTable({
-          time: formatLocal(c.start_time || c.date_created),
-          from: c.from,
-          outcome: outcomeFromCall(c),
-          duration: c.duration ?? ""
+        calls.sort((a, b) => {
+          const ta = Date.parse(a.start_time || a.date_created) || 0;
+          const tb = Date.parse(b.start_time || b.date_created) || 0;
+          return tb - ta;
         });
+
+        for (const c of calls) {
+          const tr = document.createElement("tr");
+          const out = outcome(c);
+          const cls = out === "Missed" ? "missed" : "answered";
+
+          tr.innerHTML = `
+            <td>${formatLocal(c.start_time || c.date_created)}</td>
+            <td>${c.from || ""}</td>
+            <td class="${cls}">${out}</td>
+            <td>${c.duration || 0}</td>
+          `;
+          rows.appendChild(tr);
+        }
+
+        info.textContent = `Showing ${calls.length} calls · last refresh ${new Date().toLocaleString()}`;
+      } catch (err) {
+        console.error(err);
+        warn.textContent = "Error loading calls:\n" + (err.message || String(err));
+        info.textContent = "";
       }
-
-      const now = new Date();
-      const lastRefresh = formatLocal(now.toString());
-
-      const countText = (Array.isArray(data) ? calls.length : (data.count ?? calls.length));
-      setInfo(`Showing ${calls.length} calls • last refresh ${formatLocal(now)}`);
-
-      // Optional: show pagination stats if provided
-      if (!Array.isArray(data) && (data.pagesFetched || data.hours)) {
-        setWarn(`Pulled ${countText} calls over ${data.pagesFetched || "?"} page(s) for last ${data.hours || hours} hour(s).`);
-      }
-
-    } catch (err) {
-      setWarn(String(err.message || err));
-      setInfo("No data loaded.");
     }
-  }
 
-  // Hook up buttons (assumes your buttons call these ids)
-  document.addEventListener("DOMContentLoaded", () => {
-    // If your HTML uses inline onclick attributes, this still works, but we also attach handlers.
-    const refreshBtn = document.querySelector("button#refresh") || Array.from(document.querySelectorAll("button")).find(b => /refresh/i.test(b.textContent));
-    if (refreshBtn) refreshBtn.addEventListener("click", loadAllCalls);
+    document.getElementById("refresh").addEventListener("click", loadCalls);
+    document.getElementById("range").addEventListener("change", loadCalls);
 
-    const range = document.getElementById("range");
-    if (range) range.addEventListener("change", loadAllCalls);
-
-    // initial load
-    loadAllCalls();
-  });
-
-  // If your HTML uses inline onclick="refresh()" etc, expose a global:
-  window.refresh = loadAllCalls;
-</script>
+    loadCalls();
+  </script>
+</body>
+</html>
