@@ -1,17 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>TKG Call Log</title>
-</head>
-<body>
-  <h1>TKG Call Log (All Calls)</h1>
-
-  <button onclick="loadCalls()">Refresh</button>
-
-  <pre id="output">Loading...</pre>
-
-  <script>
+<script>
   // ---- CONFIG ----
   const MAX_PAGES = 20; // increase if you want longer history and have heavy volume
 
@@ -178,6 +165,3 @@
   // If your HTML uses inline onclick="refresh()" etc, expose a global:
   window.refresh = loadAllCalls;
 </script>
-
-</body>
-</html>
