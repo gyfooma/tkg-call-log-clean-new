@@ -12,14 +12,121 @@
   <pre id="output">Loading...</pre>
 
   <script>
-    async function loadCalls() {
-      const r = await fetch('/.netlify/functions/calls');
-      const data = await r.json();
-      document.getElementById('output').textContent =
-        JSON.stringify(data, null, 2);
-    }
+  // ---- CONFIG ----
+  const MAX_PAGES = 20; // increase if you want longer history and have heavy volume
 
-    loadCalls();
-  </script>
+  // ---- Helpers ----
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function formatLocal(dt) {
+    // dt may be "Wed, 07 Jan 2026 06:41:11 +0000"
+    const d = new Date(dt);
+    if (Number.isNaN(d.getTime())) return dt || "";
+    // dd/mm/yyyy hh:mm:ss in local time
+    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+
+  function outcomeFromCall(c) {
+    // Twilio: status can be "completed", "no-answer", "busy", "failed", "canceled", etc.
+    // duration is "0" for missed/no-answer in most cases.
+    const status = (c.status || "").toLowerCase();
+    const duration = Number(c.duration || 0);
+
+    if (status === "completed" && duration > 0) return "Answered";
+    if (status === "completed" && duration === 0) return "Missed";
+    if (status === "no-answer") return "Missed";
+    if (status === "busy") return "Busy";
+    if (status === "failed") return "Failed";
+    if (status === "canceled") return "Canceled";
+    return status ? status : "Unknown";
+  }
+
+  function getSelectedHours() {
+    // Assumes your dropdown has id="range"
+    const el = document.getElementById("range");
+    if (!el) return 1;
+
+    const v = el.value;
+
+    // Support common patterns:
+    // - numeric hours: "1", "3", "24", "168"
+    // - labels: "Last 60 minutes", "Last 3 hours", "Today", "All time"
+    if (/^\d+$/.test(v)) return Number(v);
+
+    const lower = v.toLowerCase();
+    if (lower.includes("60")) return 1;
+    if (lower.includes("3")) return 3;
+    if (lower.includes("today")) return 24;
+    if (lower.includes("all")) return 24 * 365; // 1 year as "all time" cap (adjust if needed)
+
+    return 1;
+  }
+
+  function setInfo(text) {
+    const info = document.getElementById("info");
+    if (info) info.textContent = text;
+  }
+
+  function setWarn(text) {
+    const warn = document.getElementById("warn");
+    if (warn) {
+      warn.textContent = text || "";
+      warn.style.display = text ? "block" : "none";
+    }
+  }
+
+  function clearTable() {
+    const table = document.querySelector("table");
+    if (!table) return;
+
+    // Remove all rows except header
+    const rows = Array.from(table.querySelectorAll("tr"));
+    rows.slice(1).forEach(r => r.remove());
+  }
+
+  function addRowToTable({ time, from, outcome, duration }) {
+    const table = document.querySelector("table");
+    if (!table) return;
+
+    const tr = document.createElement("tr");
+
+    const tdTime = document.createElement("td");
+    tdTime.textContent = time;
+
+    const tdFrom = document.createElement("td");
+    tdFrom.textContent = from || "";
+
+    const tdOutcome = document.createElement("td");
+    tdOutcome.textContent = outcome || "";
+
+    const tdDuration = document.createElement("td");
+    tdDuration.textContent = String(duration ?? "");
+
+    tr.appendChild(tdTime);
+    tr.appendChild(tdFrom);
+    tr.appendChild(tdOutcome);
+    tr.appendChild(tdDuration);
+
+    table.appendChild(tr);
+  }
+
+  async function loadAllCalls() {
+    try {
+      setWarn("");
+      setInfo("Loading…");
+      clearTable();
+
+      const hours = getSelectedHours();
+      const url = `/.netlify/functions/calls?hours=${encodeURIComponent(hours)}&maxPages=${encodeURIComponent(MAX_PAGES)}`;
+
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`Function error ${r.status}: ${t}`);
+      }
+
+      const data = await r.json();
+      const calls = Array.isArray(data) ? d
+
 </body>
 </html>
