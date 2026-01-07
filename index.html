@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>TKG Call Log</title>
+</head>
+<body>
+  <h1>TKG Call Log (Unique Callers)</h1>
+
+  <button onclick="loadCalls()">Refresh</button>
+
+  <pre id="output">Loading...</pre>
+
+  <script>
+    async function loadCalls() {
+      const r = await fetch('/.netlify/functions/calls');
+      const data = await r.json();
+      document.getElementById('output').textContent =
+        JSON.stringify(data, null, 2);
+    }
+
+    loadCalls();
+  </script>
+</body>
+</html>
